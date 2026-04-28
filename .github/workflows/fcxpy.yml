@@ -1,0 +1,66 @@
+name: Get-AMD64-Docker-Images-Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      docker_images:
+        description: '请填写docker镜像名称,多个用英文逗号分开'
+        required: true
+        default: 'python:3.13.9-slim'
+
+jobs:
+  pull_and_package:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Pull Docker Images and Package
+        run: |
+          images="${{ github.event.inputs.docker_images }}"
+          custom_image="fcxpy-custom:latest"
+          IFS=',' read -r -a image_array <<< "$images"
+          for image in "${image_array[@]}"; do
+            docker pull "${image}" --platform "linux/amd64"
+            container_id=$(docker run -d ${image} /bin/bash -c "pip install --no-cache-dir requests>=2.32.5 pyaes>=1.6.1 beautifulsoup4>=4.14.2 lxml argparse>=1.4.0 loguru>=0.7.3 celery>=5.5.3 flask>=3.1.2 fonttools>=4.60.1 openai>=1.109.1 tqdm>=4.67.1 httpx>=0.28.1 urllib3>=2.5.0 'chardet>=3.0.2,<6.0.0'")
+            docker wait $container_id
+            docker commit $container_id ${custom_image}
+            docker save ${custom_image} -o fcxpy.tar
+            gzip -9 fcxpy.tar
+            docker rm $container_id
+          done
+
+      - name: List generated files (debug step)
+        run: |
+          echo "Preparing docker images list (.tar.gz) files:"
+          find $GITHUB_WORKSPACE -name "*.tar.gz"
+          release_name=$(TZ="Asia/Shanghai" date +'%Y-%m-%d %H:%M Build')
+          echo "RELEASE_NAME=$release_name" >> $GITHUB_ENV
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@master
+        with:
+          tag_name: DockerTarBuilder-AMD64
+          name: ${{ env.RELEASE_NAME }} for x86-64
+          body: |
+            [![Github](https://img.shields.io/badge/RELEASE:DockerTarBuilder-123456?logo=github&logoColor=fff&labelColor=green&style=for-the-badge)](https://www.bilibili.com/video/BV1EZ421M7mL) [![Github](https://img.shields.io/badge/国内加速站下载-FC7C0D?logo=github&logoColor=fff&labelColor=000&style=for-the-badge)](https://wkdaily.cpolar.top/archives/1)
+            ### How to use? For example
+            `docker load -i alpine_latest.tar.gz `
+            ### Video teaching
+            [![Bilibili](https://img.shields.io/badge/Bilibili-123456?logo=bilibili&logoColor=fff&labelColor=fb7299)](https://www.bilibili.com/video/BV1yyq6YREdF)
+          draft: false
+          prerelease: false
+          files: ./*.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Docker images as release assets
+        uses: softprops/action-gh-release@v2.1.0
+        with:
+          tag_name: DockerTarBuilder-AMD64
+          files: ${{ github.workspace }}/*.tar.gz
+          token: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
